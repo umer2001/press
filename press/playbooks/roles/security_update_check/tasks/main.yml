@@ -1,0 +1,3 @@
+---
+- name: Grep apt output
+  command: 'apt list --upgradable | grep security'

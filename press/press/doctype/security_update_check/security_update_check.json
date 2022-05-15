@@ -35,18 +35,17 @@
    "options": "Ansible Play"
   },
   {
-   "default": "Open",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "status",
-   "options": "Open\nClosed",
+   "options": "Running\nOpen\nClosed\nFailure",
    "reqd": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2022-05-13 09:24:36.476122",
+ "modified": "2022-05-13 10:48:31.771415",
  "modified_by": "Administrator",
  "module": "Press",
  "name": "Security Update Check",
