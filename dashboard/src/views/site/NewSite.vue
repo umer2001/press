@@ -1,5 +1,5 @@
 <template>
-	<WizardCard>
+	<WizardCard v-if="options">
 		<div class="mb-6 text-center">
 			<h1 class="text-2xl font-bold">Create a new site</h1>
 			<p v-if="benchTitle" class="text-base text-gray-700">
@@ -13,21 +13,22 @@
 			>
 				<div class="mt-8"></div>
 				<Hostname
+					:options="options"
 					v-show="activeStep.name === 'Hostname'"
 					v-model="subdomain"
 					@error="error => (subdomainValid = !Boolean(error))"
 				/>
 				<Apps
+					:options="options"
 					v-show="activeStep.name === 'Apps'"
 					:privateBench="privateBench"
-					:bench="benchName"
 					v-model:selectedApps="selectedApps"
 					v-model:selectedGroup="selectedGroup"
 					v-model:selectedRegion="selectedRegion"
 					v-model:shareDetailsConsent="shareDetailsConsent"
 				/>
 
-				<div v-if="activeStep.name === 'Select App Plans'">
+				<div v-if="activeStep.name === 'Plan'">
 					<ChangeAppPlanSelector
 						v-for="app in appsWithPlans"
 						:key="app.name"
@@ -40,14 +41,14 @@
 				</div>
 
 				<Restore
+					:options="options"
 					v-model:selectedFiles="selectedFiles"
 					v-model:skipFailingPatches="skipFailingPatches"
 					v-show="activeStep.name == 'Restore'"
 				/>
 				<Plans
 					v-model:selectedPlan="selectedPlan"
-					:benchCreation="benchCreation"
-					:benchTeam="benchTeam"
+					:options="options"
 					v-show="activeStep.name === 'Plan'"
 				/>
 				<ErrorMessage :message="validationMessage" />
@@ -119,6 +120,7 @@
 </template>
 
 <script>
+import { DateTime } from 'luxon';
 import WizardCard from '@/components/WizardCard.vue';
 import Steps from '@/components/Steps.vue';
 import Hostname from './NewSiteHostname.vue';
@@ -143,11 +145,9 @@ export default {
 		return {
 			subdomain: null,
 			subdomainValid: false,
+			options: null,
 			privateBench: false,
-			benchName: null,
 			benchTitle: null,
-			benchCreation: null,
-			benchTeam: null,
 			selectedApps: [],
 			selectedGroup: null,
 			selectedRegion: null,
@@ -193,6 +193,11 @@ export default {
 		};
 	},
 	async mounted() {
+		this.options = await this.$call('press.api.site.options_for_new');
+		this.options.plans = this.options.plans.map(plan => {
+			plan.disabled = !this.$account.hasBillingInfo;
+			return plan;
+		});
 		if (this.$route.query.domain) {
 			let domain = this.$route.query.domain.split('.');
 			if (domain) {
@@ -210,10 +215,25 @@ export default {
 					name: this.bench
 				}
 			);
-			this.benchName = this.bench;
 			this.benchTitle = title;
-			this.benchCreation = creation;
-			this.benchTeam = team;
+			if (team == this.$account.team.name) {
+				// Select a zero cost plan and remove the plan selection step
+				this.selectedPlan = { name: 'Unlimited' };
+				let plan_step_index = this.steps.findIndex(step => step.name == 'Plan');
+				this.steps.splice(plan_step_index, 1);
+			} else {
+				// poor man's bench paywall
+				// this will disable creation of $10 sites on private benches
+				// wanted to avoid adding a new field, so doing this with a date check :)
+				let benchCreation = DateTime.fromSQL(creation);
+				let paywalledBenchDate = DateTime.fromSQL('2021-09-21 00:00:00');
+				let isPaywalledBench = benchCreation > paywalledBenchDate;
+				if (isPaywalledBench && this.$account.user.user_type != 'System User') {
+					this.options.plans = this.options.plans.filter(
+						plan => plan.price_usd >= 25
+					);
+				}
+			}
 		}
 	},
 	resources: {
@@ -241,7 +261,6 @@ export default {
 					let canCreate =
 						this.subdomainValid &&
 						this.selectedApps.length > 0 &&
-						this.selectedPlan &&
 						(!this.wantsToRestore || this.selectedFiles.database);
 
 					if (!this.agreedToRegionConsent) {
@@ -278,7 +297,6 @@ export default {
 						release_group: this.selectedGroup
 					}
 				);
-
 				if (this.appsWithPlans && this.appsWithPlans.length > 0) {
 					this.addPlanSelectionStep();
 
@@ -300,11 +318,11 @@ export default {
 			const appsStepIndex = this.steps.findIndex(step => step.name == 'Apps');
 
 			const selectAppPlansStepIndex = this.steps.findIndex(
-				step => step.name == 'Select App Plans'
+				step => step.name == 'Plan'
 			);
 			if (selectAppPlansStepIndex < 0) {
 				this.steps.splice(appsStepIndex + 1, 0, {
-					name: 'Select App Plans',
+					name: 'Plan',
 					validate: () => {
 						for (let app of Object.keys(this.selectedAppPlans)) {
 							if (!this.selectedAppPlans[app]) {
@@ -322,7 +340,7 @@ export default {
 		},
 		removePlanSelectionStepIfExists() {
 			const selectAppPlansStepIndex = this.steps.findIndex(
-				step => step.name == 'Select App Plans'
+				step => step.name == 'Plan'
 			);
 			if (selectAppPlansStepIndex >= 0) {
 				this.steps.splice(selectAppPlansStepIndex, 1);
